@@ -155,7 +155,11 @@ Available workers:
 options = ["FINISH"] + list(worker_descriptions.keys())
 FINISH = {"next_node": "FINISH"}
 
-def supervisor_agent(state):
+class AgentState(ChatAgentState):
+    next_node: str
+    iteration_count: int
+
+def supervisor_agent(state: AgentState):
     count = state.get("iteration_count", 0) + 1
     if count > MAX_ITERATIONS:
         return FINISH
@@ -182,7 +186,7 @@ def supervisor_agent(state):
 #######################################
 
 
-def agent_node(state, agent, name):
+def agent_node(state: AgentState, agent, name):
     result = agent.invoke(state)
     return {
         "messages": [
@@ -195,19 +199,16 @@ def agent_node(state, agent, name):
     }
 
 
-def final_answer(state):
-    count = state.get("iteration_count", 0) 
+def final_answer(state: AgentState): 
     prompt = "Using only the content in the messages, respond to the user question. You can use the answer given by the other assistant messages if they are available and relevant. You only and strictly answer questions about bank policies, account balances, and transactions, and calculations/simulation."
     preprocessor = RunnableLambda(
-        lambda state: [{"role": "system", "content": prompt}] + state["messages"][1:] 
+        lambda state: [{"role": "system", "content": prompt}] + state["messages"] 
     )
     final_answer_chain = preprocessor | llm
     return {"messages": [final_answer_chain.invoke(state)]}
 
 
-class AgentState(ChatAgentState):
-    next_node: str
-    iteration_count: int
+
 
 
 vs_node = functools.partial(agent_node, agent=vs_agent, name="VectorSearch")
