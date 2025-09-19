@@ -6,12 +6,12 @@ import mlflow
 from databricks.sdk import WorkspaceClient
 from databricks_langchain import (
     ChatDatabricks,
-    UCFunctionToolkit,
-    DatabricksFunctionClient,
-    set_uc_function_client
+    # UCFunctionToolkit,
+    # DatabricksFunctionClient,
+    # set_uc_function_client
 )
-client = DatabricksFunctionClient()
-set_uc_function_client(client) 
+# client = DatabricksFunctionClient()
+# set_uc_function_client(client) 
 from databricks_langchain.genie import GenieAgent
 from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
@@ -43,7 +43,7 @@ user_client = WorkspaceClient(credentials_strategy=ModelServingUserCredentials()
 # You can find the ID in the URL of the genie room /genie/rooms/<GENIE_SPACE_ID>
 # Example description: This Genie agent can answer questions based on a database containing tables related to enterprise software sales, including accounts, opportunities, opportunity history, fiscal periods, quotas, targets, teams, and users. Use Genie to fetch and analyze data from these tables by specifying the relevant columns and filters. Genie can execute SQL queries to provide precise data insights based on your questions.
 GENIE_SPACE_ID = "01f094a722db14b598eaa57f3e79d4d5"
-genie_agent_description = "This genie room answers questions on the account balance, and transactions."
+genie_agent_description = "This genie agent is specialized in text to sql and can interact with customer-specific financial tabular datasetsets. It answers questions on the account balance, and transactions."
 
 genie_agent = GenieAgent(
     genie_space_id=GENIE_SPACE_ID,
@@ -92,12 +92,32 @@ vs_agent = create_react_agent(llm, tools=vector_search_tools)
 # Create a code agent
 # You can also create agents with access to additional tools
 ############################################################
+# from langchain.tools import tool
+
 tools = []
 
-# TODO if desired, add additional tools and update the description of this agent
-uc_tool_names = ["system.ai.*"]
-uc_toolkit = UCFunctionToolkit(function_names=uc_tool_names)
-tools.extend(uc_toolkit.tools)
+WAREHOUSE_ID = '99be83f79968bf4e'
+
+def execute_python(code: str) -> str:
+    """ 
+    Executes Python code in a stateless sandboxed environment and returns its stdout. The runtime cannot access files or read previous executions' output. All operations must be self-contained, using only standard Python libraries. Calls to other tools are prohibited.
+
+    Args: 
+      code (str): The Python code to execute. All the strings should be in double quotes.
+    Returns: 
+      str: The stdout of the executed code.
+    """
+    response = user_client.statement_execution.execute_statement(f"SELECT system.ai.python_exec('{code}')", warehouse_id=WAREHOUSE_ID)
+
+    response_dict = response.as_dict()
+    return (str(response_dict))
+
+tools.append(execute_python)
+
+# # TODO if desired, add additional tools and update the description of this agent
+# uc_tool_names = ["system.ai.*"]
+# uc_toolkit = UCFunctionToolkit(function_names=uc_tool_names)
+# tools.extend(uc_toolkit.tools)
 code_agent_description = (
     "The Coder agent specializes in solving programming challenges, generating code snippets, debugging issues, and explaining complex coding concepts.",
 )
@@ -109,7 +129,7 @@ code_agent = create_react_agent(llm, tools=tools)
 
 # TODO update the max number of iterations between supervisor and worker nodes
 # before returning to the user
-MAX_ITERATIONS = 3
+MAX_ITERATIONS = 4
 
 worker_descriptions = {
     "Genie": genie_agent_description,
@@ -121,7 +141,17 @@ formatted_descriptions = "\n".join(
     f"- {name}: {desc}" for name, desc in worker_descriptions.items()
 )
 
-system_prompt = f"Decide between routing between the following workers or ending the conversation if an answer is provided. \n{formatted_descriptions}"
+system_prompt = f"""
+You are a supervisor agent. Your task is to decide the next step for a given user query.
+
+You may:
+- Route the query to exactly one of the available workers listed below.
+- End the conversation if the query is already answered or no further action is required.
+
+Available workers:
+{formatted_descriptions}
+"""
+
 options = ["FINISH"] + list(worker_descriptions.keys())
 FINISH = {"next_node": "FINISH"}
 
@@ -166,9 +196,10 @@ def agent_node(state, agent, name):
 
 
 def final_answer(state):
-    prompt = "Using only the content in the messages, respond to the previous user question using the answer given by the other assistant messages."
+    count = state.get("iteration_count", 0) 
+    prompt = "Using only the content in the messages, respond to the user question. You can use the answer given by the other assistant messages if they are available and relevant. You only and strictly answer questions about bank policies, account balances, and transactions, and calculations/simulation."
     preprocessor = RunnableLambda(
-        lambda state: state["messages"] + [{"role": "user", "content": prompt}]
+        lambda state: [{"role": "system", "content": prompt}] + state["messages"][1:] 
     )
     final_answer_chain = preprocessor | llm
     return {"messages": [final_answer_chain.invoke(state)]}
