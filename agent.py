@@ -81,7 +81,7 @@ try:
     )
   vector_search_tools.append(tool_vsi)
 except Exception as e:
-    _logger.debug("Skipping adding tool as user does not have permissions")    
+    _logger.debug("Skipping adding vector search index as user does not have permissions")    
 
 vs_agent_description = (
     "The vector search agent specializes in retreving the relevant context from the vector search indexes, and generate a grounded response based on the retreived context.",
@@ -114,6 +114,7 @@ MAX_ITERATIONS = 3
 worker_descriptions = {
     "Genie": genie_agent_description,
     "Coder": code_agent_description,
+    "VectorSearch": vs_agent_description,
 }
 
 formatted_descriptions = "\n".join(
