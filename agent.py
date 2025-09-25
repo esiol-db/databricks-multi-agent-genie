@@ -93,9 +93,20 @@ def create_agent(llm: LanguageModelLike) -> CompiledStateGraph:
             tool_name="policies_vsi",
             workspace_client=user_client # Specify the user authorized client
             )
-        vector_search_tools.append(tool_vsi)
     except Exception as e:
+        def tool_vsi(dummy: str) -> str:
+            """
+            The user does not have access to the vector search index.
+
+            Args:
+            dummy: A dummy string that is not used.
+            Returns:
+            str: A message indicating that the user does not have access to the vector search index
+            """
+            return f"User does not have access to the vector search index."
         _logger.debug("Skipping adding vector search index as user does not have permissions")    
+
+    vector_search_tools.append(tool_vsi)
 
     vs_agent_description = (
         "The vector search agent specializes in retreving the relevant context from the vector search indexes, and generate a grounded response based on the retreived context.",
@@ -118,9 +129,11 @@ def create_agent(llm: LanguageModelLike) -> CompiledStateGraph:
 
         Args: 
         code (str): The Python code to execute. All the strings should be in double quotes.
+        
         Returns: 
         str: The stdout of the executed code.
         """
+        user_client = WorkspaceClient(credentials_strategy=ModelServingUserCredentials())
         try:
             response = user_client.statement_execution.execute_statement(f"SELECT system.ai.python_exec('{code}')", warehouse_id=WAREHOUSE_ID)
 
